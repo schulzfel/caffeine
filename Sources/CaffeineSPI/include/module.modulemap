@@ -1,0 +1,4 @@
+module CaffeineSPI {
+    header "CaffeineSPI.h"
+    export *
+}

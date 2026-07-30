@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>tech.46h.caffeine.helper</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/PrivilegedHelperTools/tech.46h.caffeine.helper</string>
+	</array>
+	<key>MachServices</key>
+	<dict>
+		<key>tech.46h.caffeine.helper</key>
+		<true/>
+	</dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>CAFFEINE_APP_REQUIREMENT</key>
+		<string></string>
+	</dict>
+	<!--
+		The release package's privileged transaction, or the contributor-only
+		local installer, replaces CAFFEINE_APP_REQUIREMENT with the exact
+		designated requirement of the validated ad-hoc Universal app in
+		/Applications. Keeping this reviewed package template empty removes the
+		circular dependency between the app's outer resource seal and its
+		embedded installer. KeepAlive preserves crash recovery.
+	-->
+	<key>KeepAlive</key>
+	<true/>
+</dict>
+</plist>

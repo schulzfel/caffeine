@@ -1,0 +1,62 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and validate community release
+        env:
+          APP_VERSION: ${{ github.ref_name }}
+          BUILD_VERSION: ${{ github.run_number }}
+        run: |
+          APP_VERSION="${APP_VERSION#v}"
+          if [[ ! "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::Release tags must be v followed by one to three dot-separated integers (for example, v1.0.0)."
+            exit 1
+          fi
+          export APP_VERSION
+          make release
+          echo "DMG=dist/Caffeine-${APP_VERSION}-build-${BUILD_VERSION}-macOS-universal.dmg" >> "$GITHUB_ENV"
+          echo "CHECKSUM=dist/Caffeine-${APP_VERSION}-build-${BUILD_VERSION}-macOS-universal.dmg.sha256" >> "$GITHUB_ENV"
+
+      - name: Attest release artifacts
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            ${{ env.DMG }}
+            ${{ env.CHECKSUM }}
+
+      - name: Create draft release with downloadable DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: |
+            Free, open-source Universal 2 community build for Intel and Apple silicon Macs.
+
+            The app and optional helper are identity-free ad-hoc signed with the hardened runtime. The DMG and the helper package sealed inside the app are unsigned, and nothing is signed with an Apple Developer ID or notarized by Apple. macOS therefore requires **Open Anyway** confirmation for the app and, if used, the optional package. Select **Stay Awake When Lid Closed** in Caffeine to open its exact embedded installer—no Terminal command is required.
+
+            Closed-lid mode has no Accessibility or Automation permission. First use opens macOS Installer for administrator authorization; Caffeine opens Login Items only if the installed helper is later disabled.
+
+            Download the DMG and its matching `.sha256` file below. The checksum detects corruption or replacement, but because it is distributed through this same GitHub Release, it does not independently authenticate the publisher or protect against a compromised release channel. If you have GitHub CLI, independently verify the workflow provenance with `gh attestation verify path/to/Caffeine.dmg --repo ${{ github.repository }} --signer-workflow ${{ github.repository }}/.github/workflows/release.yml`.
+
+            Read the [installation and optional helper instructions](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#download-and-install), the [experimental lid-mode warning](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#lid-closed-mode-is-experimental), the [source code](${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}), the [MIT License](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/LICENSE), and [third-party notices](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/THIRD_PARTY_NOTICES.md).
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "$DMG" \
+            "$CHECKSUM" \
+            --draft \
+            --verify-tag \
+            --generate-notes \
+            --notes "$RELEASE_NOTES" \
+            --title "Caffeine ${GITHUB_REF_NAME#v}"
