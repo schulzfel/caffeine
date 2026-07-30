@@ -20,6 +20,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private static let statusIconPointSize = NSSize(width: 16, height: 16)
 
     private let controller: CaffeineController
+    private let beginInstallerHandoff:
+        @MainActor (PreparedHelperInstaller) -> Void
     private let statusItem: NSStatusItem
     private let activeStatusIcon: NSImage
     private let inactiveStatusIcon: NSImage
@@ -29,8 +31,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let bulkItem = NSMenuItem()
     private let launchAtLoginItem = NSMenuItem()
 
-    init(controller: CaffeineController) {
+    init(
+        controller: CaffeineController,
+        beginInstallerHandoff:
+            @escaping @MainActor (PreparedHelperInstaller) -> Void
+    ) {
         self.controller = controller
+        self.beginInstallerHandoff = beginInstallerHandoff
         activeStatusIcon = Self.loadStatusIcon(
             named: Self.activeStatusIconResourceName
         )
@@ -228,24 +235,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             return
         }
 
-        guard let installerURL =
-            HelperInstallerLocator().matchingInstallerURL(),
-              NSWorkspace.shared.open(installerURL) else {
+        guard let preparedInstaller =
+            HelperInstallerLocator().matchingInstaller() else {
             presentInstallerOpenFailure()
             return
         }
 
-        // This event is emitted from a Swift concurrency task on MainActor.
-        // Calling terminate synchronously here can leave that task occupying
-        // MainActor while AppDelegate's `.terminateLater` cleanup task waits
-        // for the same executor. Schedule termination through the AppKit run
-        // loop so this controller operation can unwind before cleanup begins.
-        DispatchQueue.main.async {
-            NSApp.terminate(nil)
-        }
+        beginInstallerHandoff(preparedInstaller)
     }
 
-    private func presentInstallerOpenFailure() {
+    func presentInstallerOpenFailure() {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage

@@ -457,30 +457,42 @@ caffeine_package_validate_plist_schema() {
         "KeepAlive value type"
 }
 
-caffeine_package_require_app_not_running() {
-    local attempt
+caffeine_package_process_list_contains_app() {
+    /usr/bin/awk -v expected="$CAFFEINE_APP_EXECUTABLE" '
+        {
+            executable = $0
+            sub(/^[[:space:]]*/, "", executable)
+            sub(/[[:space:]]*$/, "", executable)
+            if (executable == expected) {
+                found = 1
+            }
+        }
+        END {
+            exit found ? 0 : 1
+        }
+    '
+}
 
-    for ((attempt = 0; attempt < 100; attempt += 1)); do
-        if ! /bin/ps -axww -o comm= |
-            /usr/bin/awk -v expected="$CAFFEINE_APP_EXECUTABLE" '
-                {
-                    executable = $0
-                    sub(/^[[:space:]]*/, "", executable)
-                    sub(/[[:space:]]*$/, "", executable)
-                    if (executable == expected) {
-                        found = 1
-                    }
-                }
-                END {
-                    exit found ? 0 : 1
-                }
-            '; then
-            return
-        fi
-        /bin/sleep 0.1
-    done
-    caffeine_package_fail \
-        "quit /Applications/Caffeine.app before installing its helper"
+caffeine_package_copy_process_list() {
+    /bin/ps -axww -o comm=
+}
+
+caffeine_package_app_is_running() {
+    local process_list
+
+    if ! process_list="$(caffeine_package_copy_process_list)"; then
+        caffeine_package_fail \
+            "could not inspect running processes; refusing helper installation"
+    fi
+    printf '%s\n' "$process_list" |
+        caffeine_package_process_list_contains_app
+}
+
+caffeine_package_require_app_not_running() {
+    if caffeine_package_app_is_running; then
+        caffeine_package_fail \
+            "Caffeine is still running; quit it before installing its helper"
+    fi
 }
 
 caffeine_package_validate_assets() {

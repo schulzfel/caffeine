@@ -2,6 +2,22 @@ import CaffeineIPC
 import Darwin
 import Foundation
 
+/// A verified helper package whose descriptor remains open for its lifetime.
+///
+/// Keeping this value alive prevents an ordinary detach of the private,
+/// read-only image until Installer has accepted the package URL.
+@MainActor
+final class PreparedHelperInstaller {
+    let url: URL
+
+    private let lease: FileHandle
+
+    init(url: URL, lease: FileHandle) {
+        self.url = url
+        self.lease = lease
+    }
+}
+
 /// Prepares the helper package without trusting a writable external copy.
 ///
 /// The package is a resource sealed by the exact running app signature. The
@@ -22,7 +38,6 @@ struct HelperInstallerLocator {
     private static let imageName = "Caffeine Helper Installer.dmg"
     private static let mountName = "mounted"
     private static let sourceName = "source"
-    private static var installerLease: FileHandle?
 
     private let bundle: Bundle
     private let fileManager: FileManager
@@ -35,7 +50,7 @@ struct HelperInstallerLocator {
         self.fileManager = fileManager
     }
 
-    func matchingInstallerURL() -> URL? {
+    func matchingInstaller() -> PreparedHelperInstaller? {
         cleanupStalePreparedCopies()
 
         guard let runningAppRequirement =
@@ -168,8 +183,10 @@ struct HelperInstallerLocator {
 
         // Holding the package open keeps ordinary detach attempts from
         // succeeding during the LaunchServices handoff to Installer.
-        Self.installerLease = installerLease
-        return installerURL
+        return PreparedHelperInstaller(
+            url: installerURL,
+            lease: installerLease
+        )
     }
 
     private func lockPreparedRoot(_ root: URL) -> Bool {

@@ -14,6 +14,7 @@ app:
 test:
 	@./scripts/swift-test.sh
 	@./scripts/test-local-helper-common.sh
+	@/bin/bash ./scripts/test-helper-package-common.sh
 	@/bin/bash ./scripts/test-signature-flag-parsing.sh
 
 validate:
