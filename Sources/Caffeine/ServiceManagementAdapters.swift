@@ -136,10 +136,13 @@ final class HelperRegistrationManager: HelperRegistrationManaging {
             logger.error(
                 """
                 Service Management reports the helper enabled, but its \
-                expected launchd job is not running
+                expected launchd job is not running yet
                 """
             )
-            return .notRegistered
+            // launchd can need a moment to start the enabled legacy job after
+            // installation or login. This is transient unavailability, not
+            // evidence that the root-installed payload is absent.
+            return .unknown
         case .unexpectedConfiguration:
             logger.fault(
                 """
@@ -173,8 +176,10 @@ final class HelperRegistrationManager: HelperRegistrationManaging {
             return .ready
         case .requiresApproval:
             return .requiresApproval
-        case .notRegistered, .notFound, .unknown:
+        case .notRegistered, .notFound:
             return .requiresInstallation
+        case .unknown:
+            return .unavailable
         }
     }
 

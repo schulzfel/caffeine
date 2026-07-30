@@ -195,6 +195,10 @@ browser so normal quarantine metadata is present.
       both architectures.
 - [ ] Confirm there is no Dock icon or main window and the coffee-bean glyph
       appears in the menu bar.
+- [ ] Confirm a normal Finder launch opens the menu under the coffee-bean
+      glyph, while a login-item launch stays unobtrusive.
+- [ ] With Caffeine already running, open the app again from Finder and confirm
+      its existing menu opens instead of appearing to do nothing.
 - [ ] Confirm running from outside `/Applications` provides a clear move-to-
       Applications message for features that require a stable installation.
 
@@ -261,6 +265,12 @@ First verify the in-app path:
       before any privileged mutation.
 - [ ] Confirm the package succeeds and starts
       `system/tech.46h.caffeine.helper`.
+- [ ] Confirm a successful install relaunches Caffeine as the logged-in user,
+      not root, without stealing focus from Installer.
+- [ ] Confirm the original lid-mode request becomes active in the relaunched
+      app without another click.
+- [ ] Cancel before authentication and exercise an induced installer failure;
+      confirm neither path relaunches Caffeine.
 - [ ] Confirm the installed files are exactly:
 
   ```text
@@ -280,7 +290,7 @@ First verify the in-app path:
 - [ ] Select the lid option and rerun the same embedded package without
       changing the app; confirm the operation is safe and the final service
       remains healthy.
-- [ ] Reopen Caffeine and confirm lid-closed mode recognizes the installed
+- [ ] Confirm the automatically relaunched Caffeine recognizes the installed
       helper.
 - [ ] Replace the app temporarily with a different valid ad-hoc build or test
       fixture; confirm the existing helper rejects it until the installer
@@ -336,6 +346,12 @@ long-running observable task available to distinguish awake from asleep.
 - [ ] Confirm the app reports the lost connection and can reconnect safely.
 - [ ] Reboot after exercising lid mode; verify the Mac starts normally and no
       stale Caffeine-owned sleep state remains.
+- [ ] With **Launch at Login** enabled and all three options selected, reboot
+      and confirm Caffeine launches once, the menu checkmarks return, and every
+      selected effect is reapplied after login.
+- [ ] Turn **Launch at Login** off, reboot, and confirm the root helper safely
+      starts without applying user intent; opening Caffeine manually then
+      restores the saved selections.
 
 ## Update and CDHash rotation
 
@@ -359,7 +375,8 @@ using its installed helper.
       the new helper and plist, and reaches a healthy running state.
 - [ ] Confirm the plist now pins both CDHashes from the new Universal app and
       the installed helper matches the new embedded helper.
-- [ ] Reopen the new app and verify all three options.
+- [ ] Confirm the new app relaunches automatically and verify all three
+      options.
 - [ ] Exercise an induced installer failure and confirm rollback preserves or
       restores the complete prior helper installation rather than leaving one
       file updated.

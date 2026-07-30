@@ -63,6 +63,7 @@ public struct StoredPreferences: Codable, Equatable, Sendable {
 
     public var version: Int
     public var enabledOptions: Set<WakeOption>
+    /// A lid request waiting for helper installation or system approval.
     public var waitingForLidApproval: Bool
     public var didExplainHelperApproval: Bool
 

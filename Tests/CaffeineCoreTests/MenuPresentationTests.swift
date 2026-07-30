@@ -168,9 +168,17 @@ struct MenuPresentationTests {
             )
         ] = [
             (.enabled, true, nil),
-            (.notRegistered, false, nil),
+            (
+                .notRegistered,
+                false,
+                "Restore settings after restart"
+            ),
             (.requiresApproval, false, "Waiting for approval…"),
-            (.notFound, false, "Login item is unavailable"),
+            (
+                .notFound,
+                false,
+                "Restore settings after restart"
+            ),
             (.unknown, false, nil),
         ]
 

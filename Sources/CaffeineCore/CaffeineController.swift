@@ -5,6 +5,12 @@ import Foundation
 /// actions to this type.
 @MainActor
 public final class CaffeineController {
+    private static let restoredLidRetryDelays: [Duration] = [
+        .milliseconds(250),
+        .milliseconds(750),
+        .seconds(2),
+    ]
+
     public private(set) var state: CaffeineState
 
     /// Called synchronously on the main actor whenever observable state changes.
@@ -17,24 +23,30 @@ public final class CaffeineController {
     private let helperRegistration: any HelperRegistrationManaging
     private let launchAtLoginManager: any LaunchAtLoginManaging
     private let preferencesStore: any PreferencesStoring
+    private let sleepBeforeLidRestoreRetry: (Duration) async -> Void
 
     private var storedPreferences = StoredPreferences()
     private var optionRevisions: [WakeOption: UInt64] = Dictionary(
         uniqueKeysWithValues: WakeOption.allCases.map { ($0, 0) }
     )
     private var launchAtLoginRevision: UInt64 = 0
+    private var lidRestoreRetryInProgress = false
     private var hasStarted = false
 
     public init(
         powerController: any PowerControlling,
         helperRegistration: any HelperRegistrationManaging,
         launchAtLoginManager: any LaunchAtLoginManaging,
-        preferencesStore: any PreferencesStoring
+        preferencesStore: any PreferencesStoring,
+        sleepBeforeLidRestoreRetry: @escaping (Duration) async -> Void = {
+            try? await Task.sleep(for: $0)
+        }
     ) {
         self.powerController = powerController
         self.helperRegistration = helperRegistration
         self.launchAtLoginManager = launchAtLoginManager
         self.preferencesStore = preferencesStore
+        self.sleepBeforeLidRestoreRetry = sleepBeforeLidRestoreRetry
         state = CaffeineState()
     }
 
@@ -91,6 +103,8 @@ public final class CaffeineController {
         }
         state.lifecycle = .running
         publish()
+
+        await retryRestoredLidOptionIfNeeded()
     }
 
     /// Toggles one independent keep-awake option.
@@ -175,7 +189,11 @@ public final class CaffeineController {
         }
 
         await refreshLaunchAtLoginStatus()
+        await refreshLidHelperStatus()
+        await retryRestoredLidOptionIfNeeded()
+    }
 
+    private func refreshLidHelperStatus() async {
         guard canAcceptUserAction,
               !state[.lidClosed].effect.isTransitioning else {
             return
@@ -193,8 +211,21 @@ public final class CaffeineController {
 
         let lidState = state[.lidClosed]
         switch (lidState.intent, observedStatus) {
+        case (.enabled, .enabled)
+            where lidState.effect == .inactive:
+            // A persisted lid request may have been restored before launchd
+            // finished bringing up the helper. Retry quietly once the helper
+            // reports ready instead of requiring another user click.
+            await enableLidOption(
+                userInitiated: false,
+                knownReadiness: .ready
+            )
+
         case (.waitingForApproval, .enabled):
-            await enableLidOption(userInitiated: false)
+            await enableLidOption(
+                userInitiated: false,
+                knownReadiness: .ready
+            )
 
         case (.waitingForApproval, .notRegistered):
             await enableLidOption(userInitiated: false)
@@ -206,7 +237,10 @@ public final class CaffeineController {
             failLidOption(with: .helperNotFound)
 
         case (.waitingForApproval, .unknown):
-            failLidOption(with: .helperUnavailable)
+            // The helper may be crossing from approval into its running state.
+            // Keep the pending request durable while the bounded retry below
+            // waits for a definitive Service Management observation.
+            break
 
         case (.off, .requiresApproval)
             where lidState.issue == .helperConnectionLost:
@@ -216,26 +250,106 @@ public final class CaffeineController {
             moveLidOptionToWaiting(userInitiated: false)
 
         case (.enabled, .requiresApproval):
-            await clearActiveLidEffect(
-                observedRevision: revision,
-                destination: .waitingForApproval
-            )
+            if lidState.effect.isEffectivelyActive {
+                await clearActiveLidEffect(
+                    observedRevision: revision,
+                    destination: .waitingForApproval
+                )
+            } else {
+                moveLidOptionToWaiting(userInitiated: false)
+            }
 
-        case (.enabled, .notRegistered), (.enabled, .unknown):
-            await clearActiveLidEffect(
-                observedRevision: revision,
-                destination: .off(issue: .helperUnavailable)
-            )
+        case (.enabled, .notRegistered):
+            if lidState.effect.isEffectivelyActive {
+                await clearActiveLidEffect(
+                    observedRevision: revision,
+                    destination: .off(issue: .helperUnavailable)
+                )
+            } else {
+                await enableLidOption(userInitiated: false)
+            }
 
         case (.enabled, .notFound):
-            await clearActiveLidEffect(
-                observedRevision: revision,
-                destination: .off(issue: .helperNotFound)
-            )
+            if lidState.effect.isEffectivelyActive {
+                await clearActiveLidEffect(
+                    observedRevision: revision,
+                    destination: .off(issue: .helperNotFound)
+                )
+            } else {
+                await enableLidOption(userInitiated: false)
+            }
+
+        case (.enabled, .unknown):
+            // `.unknown` is a transient launchd-health observation. The live
+            // XPC connection reports a real effect loss separately, so never
+            // erase durable intent solely because this probe raced startup.
+            break
 
         default:
             break
         }
+    }
+
+    private func retryRestoredLidOptionIfNeeded() async {
+        guard !lidRestoreRetryInProgress,
+              shouldRetryRestoredLidOption else {
+            return
+        }
+
+        lidRestoreRetryInProgress = true
+        defer {
+            lidRestoreRetryInProgress = false
+        }
+
+        for delay in Self.restoredLidRetryDelays {
+            guard shouldRetryRestoredLidOption else {
+                return
+            }
+
+            await sleepBeforeLidRestoreRetry(delay)
+
+            guard shouldRetryRestoredLidOption else {
+                return
+            }
+            await refreshLidHelperStatus()
+        }
+    }
+
+    private var shouldRetryRestoredLidOption: Bool {
+        guard state.lifecycle == .running,
+              state[.lidClosed].effect == .inactive else {
+            return false
+        }
+
+        switch state[.lidClosed].intent {
+        case .enabled:
+            return state[.lidClosed].issue == .helperUnavailable
+        case .waitingForApproval:
+            return state.helperStatus == .unknown
+        case .off:
+            return false
+        }
+    }
+
+    /// Keeps a lid request durable while the app hands off to the optional
+    /// helper installer.
+    ///
+    /// This deliberately applies only to the stable, actionable state emitted
+    /// after a user has requested lid-closed mode and helper installation was
+    /// found to be necessary. The next app launch can then reconcile the
+    /// request just like a pending helper approval.
+    public func deferLidRequestForHelperInstallation() {
+        guard state.lifecycle != .quitting,
+              state[.lidClosed] == WakeOptionState(
+                  intent: .off,
+                  effect: .inactive,
+                  issue: .helperRequiresInstallation
+              ) else {
+            return
+        }
+
+        _ = nextRevision(for: .lidClosed)
+        moveLidOptionToWaiting(userInitiated: false)
     }
 
     public func toggleLaunchAtLogin() async {
@@ -446,7 +560,10 @@ public final class CaffeineController {
         publish()
     }
 
-    private func enableLidOption(userInitiated: Bool) async {
+    private func enableLidOption(
+        userInitiated: Bool,
+        knownReadiness: ResolvedHelperReadiness? = nil
+    ) async {
         let revision = nextRevision(for: .lidClosed)
         state[.lidClosed].intent = .enabled
         state[.lidClosed].effect = .applying
@@ -454,7 +571,12 @@ public final class CaffeineController {
         persistStableState()
         publish()
 
-        let readiness = await resolveHelperReadiness(revision: revision)
+        let readiness: ResolvedHelperReadiness
+        if let knownReadiness {
+            readiness = knownReadiness
+        } else {
+            readiness = await resolveHelperReadiness(revision: revision)
+        }
         guard isCurrent(revision, for: .lidClosed),
               state.lifecycle != .quitting else {
             return
@@ -467,7 +589,10 @@ public final class CaffeineController {
             moveLidOptionToWaiting(userInitiated: userInitiated)
             return
         case .unavailable(let issue):
-            failLidOption(with: issue)
+            resolveLidEnableFailure(
+                issue,
+                userInitiated: userInitiated
+            )
             if userInitiated,
                issue == .helperRequiresInstallation {
                 onEvent?(.presentHelperInstallationRequired)
@@ -482,7 +607,10 @@ public final class CaffeineController {
                   state.lifecycle != .quitting else {
                 return
             }
-            failLidOption(with: .helperUnavailable)
+            resolveLidEnableFailure(
+                .helperUnavailable,
+                userInitiated: userInitiated
+            )
             return
         }
 
@@ -722,6 +850,28 @@ public final class CaffeineController {
             intent: .off,
             effect: .inactive,
             issue: issue
+        )
+        persistStableState()
+        publish()
+    }
+
+    private func resolveLidEnableFailure(
+        _ issue: OptionIssue,
+        userInitiated: Bool
+    ) {
+        guard !userInitiated, issue == .helperUnavailable else {
+            failLidOption(with: issue)
+            return
+        }
+
+        // During startup the helper's launchd job and XPC listener can lag the
+        // app by a moment. Keep the durable request, show the inactive retry
+        // hint, and let refreshExternalState reapply it when the helper is
+        // observed as enabled.
+        state[.lidClosed] = WakeOptionState(
+            intent: .enabled,
+            effect: .inactive,
+            issue: .helperUnavailable
         )
         persistStableState()
         publish()

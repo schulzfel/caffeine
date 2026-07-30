@@ -512,6 +512,70 @@ caffeine_package_require_app_not_running() {
     fi
 }
 
+caffeine_package_copy_console_uid() {
+    /usr/bin/stat -f '%u' /dev/console
+}
+
+caffeine_package_gui_domain_is_available() {
+    local user_id="$1"
+
+    /bin/launchctl print "gui/$user_id" >/dev/null 2>&1
+}
+
+caffeine_package_open_app_as_user() {
+    local user_id="$1"
+
+    /bin/launchctl asuser "$user_id" \
+        /usr/bin/sudo -n -H -u "#$user_id" \
+        /usr/bin/open -g -a "$CAFFEINE_APP_PATH" \
+        --args --caffeine-helper-installed
+}
+
+caffeine_package_relaunch_app_after_install() {
+    local console_uid
+
+    # This is deliberately gated on the commit marker: relaunch is a
+    # convenience after a successful transaction, never part of that
+    # transaction or a reason to roll it back.
+    if [[ "${CAFFEINE_INSTALLATION_COMMITTED:-0}" != "1" ]]; then
+        return 0
+    fi
+
+    if ! console_uid="$(caffeine_package_copy_console_uid 2>/dev/null)" ||
+       [[ ! "$console_uid" =~ ^[0-9]+$ ]] ||
+       ((10#$console_uid < 500)); then
+        printf '%s\n' \
+            "warning: Caffeine was installed, but no normal console user is available to reopen it" \
+            >&2 ||
+            true
+        return 0
+    fi
+
+    if ! caffeine_package_gui_domain_is_available "$console_uid"; then
+        printf '%s\n' \
+            "warning: Caffeine was installed, but console user $console_uid has no graphical login session; open Caffeine from Applications" \
+            >&2 ||
+            true
+        return 0
+    fi
+
+    if ! caffeine_package_open_app_as_user "$console_uid" \
+        >/dev/null 2>&1; then
+        printf '%s\n' \
+            "warning: Caffeine was installed, but it could not be reopened automatically; open Caffeine from Applications" \
+            >&2 ||
+            true
+    fi
+    return 0
+}
+
+caffeine_package_complete_installation() {
+    # Keep the successful transaction boundary and its optional UI follow-up
+    # together. Nothing required or fallible may follow this call.
+    CAFFEINE_INSTALLATION_COMMITTED=1
+    caffeine_package_relaunch_app_after_install || true
+}
+
 caffeine_package_validate_assets() {
     local package_helper_hash
     local app_helper_hash
@@ -1226,5 +1290,5 @@ caffeine_package_install() {
         "Safe removal command:" \
         "  sudo /bin/bash \"$CAFFEINE_UNINSTALLER_PATH\"" ||
         true
-    CAFFEINE_INSTALLATION_COMMITTED=1
+    caffeine_package_complete_installation
 }

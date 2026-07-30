@@ -76,8 +76,8 @@ public extension CaffeineState {
             switch launchAtLogin.status {
             case .requiresApproval:
                 launchHint = "Waiting for approval…"
-            case .notFound:
-                launchHint = "Login item is unavailable"
+            case .notRegistered, .notFound:
+                launchHint = "Restore settings after restart"
             case .unknown where launchAtLogin.issue != nil:
                 launchHint = "Couldn’t update login item"
             default:

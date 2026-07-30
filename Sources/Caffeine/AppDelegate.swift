@@ -1,6 +1,7 @@
 import AppKit
 import CaffeineCore
 import CaffeineIPC
+import CoreServices
 import Foundation
 import OSLog
 
@@ -46,8 +47,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             }
         )
+        let shouldRevealMenu = shouldRevealMenuAfterStartup(notification)
 
         Task {
+            if shouldRevealMenu {
+                menuBarController?.revealMenu()
+            }
             await powerController.setEffectLostHandler {
                 [weak caffeineController] option in
                 caffeineController?.effectWasLost(option)
@@ -55,6 +60,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await caffeineController.start()
             logger.info("Caffeine finished launching")
         }
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        if terminationFlow == .running {
+            menuBarController?.revealMenu()
+        }
+        return false
     }
 
     func applicationShouldTerminate(
@@ -181,5 +196,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await controller?.refreshExternalState()
         }
+    }
+
+    private func shouldRevealMenuAfterStartup(
+        _ notification: Notification
+    ) -> Bool {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let isDefaultLaunch = (
+            notification.userInfo?[
+                NSApplication.launchIsDefaultUserInfoKey
+            ] as? NSNumber
+        )?.boolValue ?? true
+        let context = LaunchCuePolicy.Context(
+            isDefaultLaunchEvent: isDefaultLaunch,
+            isLoginItemLaunch: event?.paramDescriptor(
+                forKeyword: keyAELaunchedAsLogInItem
+            ) != nil,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+        return LaunchCuePolicy.shouldRevealMenu(for: context)
     }
 }

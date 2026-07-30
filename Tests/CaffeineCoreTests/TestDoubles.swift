@@ -276,7 +276,8 @@ func makeFixture(
     helperStatus: ServiceStatus = .notRegistered,
     helperReadiness: HelperReadiness = .unavailable,
     helperStatusAfterEnsure: ServiceStatus? = nil,
-    launchAtLoginStatus: ServiceStatus = .notRegistered
+    launchAtLoginStatus: ServiceStatus = .notRegistered,
+    sleepBeforeLidRestoreRetry: @escaping (Duration) async -> Void = { _ in }
 ) -> ControllerFixture {
     let power = MockPowerController()
     let helper = MockHelperRegistration(
@@ -292,7 +293,8 @@ func makeFixture(
         powerController: power,
         helperRegistration: helper,
         launchAtLoginManager: launchAtLogin,
-        preferencesStore: preferences
+        preferencesStore: preferences,
+        sleepBeforeLidRestoreRetry: sleepBeforeLidRestoreRetry
     )
 
     return ControllerFixture(

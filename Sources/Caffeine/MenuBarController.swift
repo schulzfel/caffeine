@@ -61,6 +61,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         render(controller.state.menuPresentation)
     }
 
+    func revealMenu() {
+        NSApp.activate(ignoringOtherApps: true)
+        statusItem.button?.performClick(nil)
+    }
+
     private func configureStatusItem() {
         guard let button = statusItem.button else {
             return
@@ -225,8 +230,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             Caffeine will verify and prepare the installer, quit, and open \
             macOS Installer. Installer—not Caffeine—asks an administrator to \
             authorize the system-file install; Caffeine never sees the \
-            password. Reopen Caffeine afterward. Run the installer again after \
-            every Caffeine update.
+            password. After a successful install, Installer reopens Caffeine \
+            automatically. Run the installer again after every Caffeine \
+            update.
             """
         alert.addButton(withTitle: "Open Installer")
         alert.addButton(withTitle: "Not Now")
@@ -241,6 +247,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             return
         }
 
+        controller.deferLidRequestForHelperInstallation()
         beginInstallerHandoff(preparedInstaller)
     }
 

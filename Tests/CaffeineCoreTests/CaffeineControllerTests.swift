@@ -44,6 +44,45 @@ struct CaffeineControllerTests {
     }
 
     @Test
+    func testFreshControllerRestoresAllEnabledOptionsAfterRestart() async {
+        let firstRun = makeFixture(helperStatus: .enabled)
+        await firstRun.controller.start()
+        await firstRun.controller.toggleAll()
+
+        XCTAssertEqual(
+            firstRun.preferences.value.enabledOptions,
+            Set(WakeOption.allCases)
+        )
+
+        await firstRun.controller.shutdown()
+        let restarted = makeFixture(
+            storedPreferences: firstRun.preferences.value,
+            helperStatus: .enabled
+        )
+
+        await restarted.controller.start()
+
+        XCTAssertEqual(
+            restarted.power.calls,
+            [
+                PowerCall(enabled: true, option: .displayOn),
+                PowerCall(enabled: true, option: .screenSaver),
+                PowerCall(enabled: true, option: .lidClosed),
+            ]
+        )
+        for option in WakeOption.allCases {
+            XCTAssertEqual(
+                restarted.controller.state[option],
+                WakeOptionState(intent: .enabled, effect: .active)
+            )
+        }
+        XCTAssertEqual(
+            restarted.preferences.value.enabledOptions,
+            Set(WakeOption.allCases)
+        )
+    }
+
+    @Test
     func testRestoreFailureRollsBackOnlyFailingOption() async {
         let fixture = makeFixture(
             storedPreferences: StoredPreferences(
@@ -463,6 +502,44 @@ struct CaffeineControllerTests {
     }
 
     @Test
+    func testPendingApprovalRetriesTransientUnknownStatus() async {
+        let power = MockPowerController()
+        let helper = MockHelperRegistration(status: .requiresApproval)
+        let launchAtLogin = MockLaunchAtLoginManager()
+        let preferences = MockPreferencesStore()
+        var observedDelays: [Duration] = []
+        let controller = CaffeineController(
+            powerController: power,
+            helperRegistration: helper,
+            launchAtLoginManager: launchAtLogin,
+            preferencesStore: preferences,
+            sleepBeforeLidRestoreRetry: { delay in
+                observedDelays.append(delay)
+                helper.statusValue = .enabled
+            }
+        )
+        await controller.start()
+        await controller.toggle(.lidClosed)
+        helper.statusValue = .unknown
+
+        await controller.refreshExternalState()
+
+        XCTAssertEqual(observedDelays, [.milliseconds(250)])
+        XCTAssertEqual(
+            controller.state[.lidClosed],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertEqual(
+            power.calls,
+            [PowerCall(enabled: true, option: .lidClosed)]
+        )
+        XCTAssertFalse(preferences.value.waitingForLidApproval)
+        XCTAssertTrue(
+            preferences.value.enabledOptions.contains(.lidClosed)
+        )
+    }
+
+    @Test
     func testApprovalStatusAfterExplicitDisableOwnershipLossStaysOff() async {
         let fixture = makeFixture(helperStatus: .enabled)
         await fixture.controller.start()
@@ -495,7 +572,6 @@ struct CaffeineControllerTests {
     func testActiveLidHelperLossExplicitlyClearsBeforeGoingOff() async {
         let cases: [(ServiceStatus, OptionIssue)] = [
             (.notRegistered, .helperUnavailable),
-            (.unknown, .helperUnavailable),
             (.notFound, .helperNotFound),
         ]
 
@@ -542,6 +618,163 @@ struct CaffeineControllerTests {
             .helperUnavailable
         )
         XCTAssertFalse(fixture.preferences.value.waitingForLidApproval)
+    }
+
+    @Test
+    func testRestoredLidIntentSurvivesTransientUnavailableStatus() async {
+        let fixture = makeFixture(
+            storedPreferences: StoredPreferences(
+                enabledOptions: [.lidClosed]
+            ),
+            helperStatus: .unknown
+        )
+
+        await fixture.controller.start()
+
+        XCTAssertEqual(
+            fixture.controller.state[.lidClosed],
+            WakeOptionState(
+                intent: .enabled,
+                effect: .inactive,
+                issue: .helperUnavailable
+            )
+        )
+        XCTAssertTrue(
+            fixture.preferences.value.enabledOptions.contains(.lidClosed)
+        )
+        XCTAssertEqual(fixture.power.calls, [])
+
+        fixture.helper.statusValue = .enabled
+        await fixture.controller.refreshExternalState()
+
+        XCTAssertEqual(
+            fixture.controller.state[.lidClosed],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertEqual(
+            fixture.power.calls,
+            [PowerCall(enabled: true, option: .lidClosed)]
+        )
+    }
+
+    @Test
+    func testRestoredLidIntentRetriesAutomaticallyAfterStartupRace() async {
+        let power = MockPowerController()
+        let helper = MockHelperRegistration(status: .unknown)
+        let launchAtLogin = MockLaunchAtLoginManager()
+        let preferences = MockPreferencesStore(
+            StoredPreferences(enabledOptions: [.lidClosed])
+        )
+        var observedDelays: [Duration] = []
+        let controller = CaffeineController(
+            powerController: power,
+            helperRegistration: helper,
+            launchAtLoginManager: launchAtLogin,
+            preferencesStore: preferences,
+            sleepBeforeLidRestoreRetry: { delay in
+                observedDelays.append(delay)
+                helper.statusValue = .enabled
+            }
+        )
+
+        await controller.start()
+
+        XCTAssertEqual(observedDelays, [.milliseconds(250)])
+        XCTAssertEqual(
+            controller.state[.lidClosed],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertEqual(
+            power.calls,
+            [PowerCall(enabled: true, option: .lidClosed)]
+        )
+        XCTAssertTrue(
+            preferences.value.enabledOptions.contains(.lidClosed)
+        )
+    }
+
+    @Test
+    func testRestoredLidIntentRetriesTransientXPCStartupFailure() async {
+        let fixture = makeFixture(
+            storedPreferences: StoredPreferences(
+                enabledOptions: [.lidClosed]
+            ),
+            helperStatus: .enabled
+        )
+        fixture.power.failNext(enabled: true, option: .lidClosed)
+
+        await fixture.controller.start()
+
+        XCTAssertEqual(
+            fixture.controller.state[.lidClosed],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertTrue(
+            fixture.preferences.value.enabledOptions.contains(.lidClosed)
+        )
+        XCTAssertEqual(
+            fixture.power.calls,
+            [
+                PowerCall(enabled: true, option: .lidClosed),
+                PowerCall(enabled: true, option: .lidClosed),
+            ]
+        )
+    }
+
+    @Test
+    func testTransientUnknownStatusDoesNotClearActiveLidIntent() async {
+        let fixture = makeFixture(helperStatus: .enabled)
+        await fixture.controller.start()
+        await fixture.controller.toggle(.lidClosed)
+        fixture.helper.statusValue = .unknown
+
+        await fixture.controller.refreshExternalState()
+
+        XCTAssertEqual(
+            fixture.controller.state[.lidClosed],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertEqual(
+            fixture.power.calls,
+            [PowerCall(enabled: true, option: .lidClosed)]
+        )
+        XCTAssertTrue(
+            fixture.preferences.value.enabledOptions.contains(.lidClosed)
+        )
+    }
+
+    @Test
+    func testRestoredLidIntentFailsOffForDefinitiveHelperProblems() async {
+        let cases: [(HelperReadiness, OptionIssue)] = [
+            (.requiresInstallation, .helperRequiresInstallation),
+            (.missing, .helperNotFound),
+        ]
+
+        for (readiness, expectedIssue) in cases {
+            let fixture = makeFixture(
+                storedPreferences: StoredPreferences(
+                    enabledOptions: [.lidClosed]
+                ),
+                helperStatus: .notFound,
+                helperReadiness: readiness,
+                helperStatusAfterEnsure: .notFound
+            )
+
+            await fixture.controller.start()
+
+            XCTAssertEqual(
+                fixture.controller.state[.lidClosed],
+                WakeOptionState(
+                    intent: .off,
+                    effect: .inactive,
+                    issue: expectedIssue
+                )
+            )
+            XCTAssertFalse(
+                fixture.preferences.value.enabledOptions.contains(.lidClosed)
+            )
+            XCTAssertFalse(fixture.preferences.value.waitingForLidApproval)
+        }
     }
 
     @Test
@@ -616,6 +849,56 @@ struct CaffeineControllerTests {
         )
         XCTAssertEqual(fixture.power.calls, [])
         XCTAssertEqual(events, [.presentHelperInstallationRequired])
+    }
+
+    @Test
+    func testHelperInstallationHandoffDurablyDefersLidRequest() async {
+        let fixture = makeFixture(
+            helperStatus: .notFound,
+            helperReadiness: .requiresInstallation,
+            helperStatusAfterEnsure: .notFound
+        )
+        await fixture.controller.start()
+        await fixture.controller.toggle(.lidClosed)
+
+        fixture.controller.deferLidRequestForHelperInstallation()
+
+        XCTAssertEqual(
+            fixture.controller.state[.lidClosed],
+            WakeOptionState(
+                intent: .waitingForApproval,
+                effect: .inactive
+            )
+        )
+        XCTAssertTrue(fixture.preferences.value.waitingForLidApproval)
+        XCTAssertFalse(
+            fixture.preferences.value.enabledOptions.contains(.lidClosed)
+        )
+
+        let saveCount = fixture.preferences.savedValues.count
+        fixture.controller.deferLidRequestForHelperInstallation()
+        XCTAssertEqual(fixture.preferences.savedValues.count, saveCount)
+
+        await fixture.controller.shutdown()
+        let reopened = makeFixture(
+            storedPreferences: fixture.preferences.value,
+            helperStatus: .enabled
+        )
+
+        await reopened.controller.start()
+
+        XCTAssertEqual(
+            reopened.controller.state[.lidClosed],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertEqual(
+            reopened.power.calls,
+            [PowerCall(enabled: true, option: .lidClosed)]
+        )
+        XCTAssertFalse(reopened.preferences.value.waitingForLidApproval)
+        XCTAssertTrue(
+            reopened.preferences.value.enabledOptions.contains(.lidClosed)
+        )
     }
 
     @Test

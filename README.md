@@ -79,6 +79,8 @@ optional privileged helper both rely on that stable location.
 The three keep-awake controls are independently selectable. **Enable All**
 turns them all on; while any option is active, the command becomes
 **Disable All**. Selected state is restored when Caffeine launches again.
+Enable **Launch at Login** to restore those selections automatically after a
+restart; otherwise they return the next time you open Caffeine manually.
 
 Preventing the screen saver can delay automatic screen locking. Lock the Mac
 manually before leaving it unattended.
@@ -95,7 +97,9 @@ The matching installer is sealed inside each Caffeine app:
 3. Caffeine prepares and verifies a private read-only installer image, opens
    its exact embedded package in macOS Installer, and quits.
 4. Follow macOS Installer and authenticate when it asks.
-5. Reopen Caffeine.
+5. After a successful installation, Caffeine reopens in the menu bar and
+   completes the lid-mode request. A cancelled or failed installation does not
+   relaunch the app.
 
 If Gatekeeper separately blocks the unidentified package, use the same
 **System Settings → Privacy & Security → Open Anyway** flow described above,
@@ -180,7 +184,7 @@ Login Items & Extensions**, re-enable it there before using lid-closed mode.
    macOS requests it and confirm the app launches.
 5. If you use lid-closed mode, select it and choose **Open Installer** to rotate
    the helper's exact-code trust to this update.
-6. Reopen Caffeine.
+6. After a successful helper installation, Caffeine reopens automatically.
 
 Do not keep using an old installed helper with a new app. The exact-code checks
 are designed to reject that mismatch.
