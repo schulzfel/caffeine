@@ -208,19 +208,27 @@ Perform these checks before installing the optional root helper.
 
 - [ ] Confirm no Caffeine helper or plist exists under
       `/Library/PrivilegedHelperTools` or `/Library/LaunchDaemons`.
+- [ ] Toggle **Keep Mac Awake (Display Can Sleep)** alone; its checkmark and
+      filled-bean icon update.
 - [ ] Toggle **Keep Display On** alone; its checkmark and filled-bean icon
       update.
 - [ ] Toggle **Prevent Screen Saver** alone; its checkmark and icon update.
-- [ ] Enable both ordinary options together, then disable each independently.
-- [ ] Test neither option with short display-sleep and screen-saver timers;
-      normal macOS behavior remains.
+- [ ] Enable all three ordinary options together, then disable each
+      independently.
+- [ ] With no ordinary option selected, test short display-sleep, screen-saver,
+      and system-sleep timers; normal macOS behavior remains.
+- [ ] Test **Keep Mac Awake (Display Can Sleep)** only with short display- and
+      system-sleep timers; the display turns off normally while the Mac and an
+      observable task remain awake.
+- [ ] While that option is selected, explicitly choose **Sleep** and confirm
+      macOS still sleeps.
 - [ ] Test **Keep Display On** only; the display remains lit.
 - [ ] Test **Prevent Screen Saver** only; the screen saver does not start.
       Record that a periodic user-activity declaration can also power on the
       display or postpone display sleep.
-- [ ] Test both options; the display remains lit and the screen saver does not
-      start.
-- [ ] Disable both and verify normal behavior returns.
+- [ ] Test all three ordinary options together; the Mac remains awake, the
+      display remains lit, and the screen saver does not start.
+- [ ] Disable all three and verify normal behavior returns.
 - [ ] Inspect `pmset -g assertions` while each option is on and after it is off;
       Caffeine assertions appear and disappear.
 - [ ] Quit and relaunch with options selected; persisted selections restore.
@@ -346,7 +354,7 @@ long-running observable task available to distinguish awake from asleep.
 - [ ] Confirm the app reports the lost connection and can reconnect safely.
 - [ ] Reboot after exercising lid mode; verify the Mac starts normally and no
       stale Caffeine-owned sleep state remains.
-- [ ] With **Launch at Login** enabled and all three options selected, reboot
+- [ ] With **Launch at Login** enabled and all four options selected, reboot
       and confirm Caffeine launches once, the menu checkmarks return, and every
       selected effect is reapplied after login.
 - [ ] Turn **Launch at Login** off, reboot, and confirm the root helper safely
@@ -366,7 +374,7 @@ using its installed helper.
 - [ ] Attempt a normal launch of the new app. Complete the per-app
       **Open Anyway** flow if macOS requests it, then confirm the app launches.
 - [ ] Confirm the approved new app treats the old helper installation as
-      mismatched and does not enable lid mode. The two ordinary options must
+      mismatched and does not enable lid mode. The three ordinary options must
       remain usable.
 - [ ] In the new app, select the lid option and choose **Open Installer**;
       confirm the app verifies/prepares its embedded package and quits before
@@ -375,7 +383,7 @@ using its installed helper.
       the new helper and plist, and reaches a healthy running state.
 - [ ] Confirm the plist now pins both CDHashes from the new Universal app and
       the installed helper matches the new embedded helper.
-- [ ] Confirm the new app relaunches automatically and verify all three
+- [ ] Confirm the new app relaunches automatically and verify all four
       options.
 - [ ] Exercise an induced installer failure and confirm rollback preserves or
       restores the complete prior helper installation rather than leaving one

@@ -6,7 +6,7 @@
 ## Overview
 
 A minimal native macOS menu bar app that keeps the Mac awake. No windows, no
-Dock icon — it lives entirely in the menu bar. Three independently combinable
+Dock icon — it lives entirely in the menu bar. Four independently combinable
 keep-awake options, an enable/disable-all shortcut, launch-at-login, and a
 separately installed optional privileged helper for experimental
 "stay awake with lid closed" support. The app never collects or handles an
@@ -42,6 +42,7 @@ ID identity and is not notarized by Apple.
 ## Menu structure
 
 ```
+✓ Keep Mac Awake (Display Can Sleep)
 ✓ Keep Display On
 ✓ Prevent Screen Saver
   Stay Awake When Lid Closed
@@ -53,9 +54,9 @@ ID identity and is not notarized by Apple.
   Quit Caffeine
 ```
 
-- The three keep-awake options are independent checkboxes (multi-select).
-- "Enable All" turns all three on; when one or more are on it reads
-  "Disable All" and turns all three off.
+- The four keep-awake options are independent checkboxes (multi-select).
+- "Enable All" turns all four on; when one or more are on it reads
+  "Disable All" and turns all four off.
 - Option state persists in `UserDefaults` and is restored (and re-applied)
   on launch.
 
@@ -63,6 +64,7 @@ ID identity and is not notarized by Apple.
 
 | Option | Mechanism |
 |---|---|
+| Keep Mac Awake (Display Can Sleep) | `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep)` — prevents idle system sleep without preventing display sleep; it does not override explicit sleep, lid closure, or low-battery safeguards |
 | Keep Display On | `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)` |
 | Prevent Screen Saver | Periodic `IOPMAssertionDeclareUserActivity` (every ~30 s while enabled) — declares user activity to reset the screen-saver idle timer; macOS also powers on the display and postpones display sleep, so this control's observable display effect is not independent |
 | Stay Awake When Lid Closed | XPC call to the optional privileged root helper, which experimentally uses private IOKit SPI to set the system power setting `SleepDisabled` (equivalent of `pmset disablesleep 1`) |
@@ -117,7 +119,7 @@ Notes:
 - Any rebuild or update with changed signed contents changes the pinned hashes.
   Users of lid-closed mode must quit Caffeine and rerun the helper installer
   after every app replacement.
-  Until they do, the two ordinary keep-awake options remain available and
+  Until they do, the three ordinary keep-awake options remain available and
   lid-closed mode reports that installation is required.
 - The uninstaller is explicit but runs only from its root-owned installed path:
 
@@ -176,7 +178,8 @@ ID-signed and notarized `SMAppService` helper avoids this unsigned handoff.
 - `LSUIElement = true` (no Dock icon, no main window).
 - Native Swift Package (`swift build`), AppKit `NSStatusItem` + `NSMenu`, no
   storyboards/nibs.
-- State model: `enum WakeOption { displayOn, screenSaver, lidClosed }` with a
+- State model:
+  `enum WakeOption { systemAwake, displayOn, screenSaver, lidClosed }` with a
   small controller owning the option set, persistence, and side effects.
 - Power layer behind a protocol (`PowerController`) so the IOKit and XPC
   calls are mockable in tests.
@@ -238,11 +241,12 @@ ID-signed and notarized `SMAppService` helper avoids this unsigned handoff.
   canonical plist template, and the read-only DMG contains a 2× Retina
   background with a 660-by-420-point logical size and a matching unclipped
   Finder content area.
-- Manual smoke tests (real hardware only): display stays on, screensaver
-  suppressed, the Gatekeeper **Open Anyway** flow works, launch-at-login
-  survives reboot, the optional helper installs/updates/uninstalls safely, its
-  exact two-CDHash pin rejects an old/new app mismatch, lid-close keeps the Mac
-  running, and prior sleep state is restored after disable/quit/recovery.
+- Manual smoke tests (real hardware only): idle system sleep is prevented while
+  display sleep remains available, display stays on, screensaver is suppressed,
+  the Gatekeeper **Open Anyway** flow works, launch-at-login survives reboot,
+  the optional helper installs/updates/uninstalls safely, its exact two-CDHash
+  pin rejects an old/new app mismatch, lid-close keeps the Mac running, and
+  prior sleep state is restored after disable/quit/recovery.
   Repeat the complete launch and helper paths natively on both Intel and Apple
   silicon hardware, including reinstalling the helper after an app update.
 - Recheck experimental lid-closed behavior and normal sleep restoration after

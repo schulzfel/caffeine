@@ -21,7 +21,11 @@ struct CaffeineControllerTests {
     func testStartReappliesPersistedIndependentOptions() async {
         let fixture = makeFixture(
             storedPreferences: StoredPreferences(
-                enabledOptions: [.displayOn, .screenSaver]
+                enabledOptions: [
+                    .systemAwake,
+                    .displayOn,
+                    .screenSaver,
+                ]
             )
         )
 
@@ -30,17 +34,23 @@ struct CaffeineControllerTests {
         XCTAssertEqual(
             fixture.power.calls,
             [
+                PowerCall(enabled: true, option: .systemAwake),
                 PowerCall(enabled: true, option: .displayOn),
                 PowerCall(enabled: true, option: .screenSaver),
             ]
+        )
+        XCTAssertEqual(
+            fixture.controller.state[.systemAwake].effect,
+            .active
         )
         XCTAssertEqual(fixture.controller.state[.displayOn].effect, .active)
         XCTAssertEqual(fixture.controller.state[.screenSaver].effect, .active)
         XCTAssertEqual(fixture.controller.state[.lidClosed].effect, .inactive)
         XCTAssertEqual(
             fixture.preferences.value.enabledOptions,
-            [.displayOn, .screenSaver]
+            [.systemAwake, .displayOn, .screenSaver]
         )
+        XCTAssertEqual(fixture.preferences.savedValues, [])
     }
 
     @Test
@@ -65,6 +75,7 @@ struct CaffeineControllerTests {
         XCTAssertEqual(
             restarted.power.calls,
             [
+                PowerCall(enabled: true, option: .systemAwake),
                 PowerCall(enabled: true, option: .displayOn),
                 PowerCall(enabled: true, option: .screenSaver),
                 PowerCall(enabled: true, option: .lidClosed),
@@ -160,27 +171,58 @@ struct CaffeineControllerTests {
     }
 
     @Test
-    func testEnableFailureRollsBackAndCanBeRetried() async {
+    func testSystemAwakeDoesNotEnableDisplayOrScreenSaverEffects() async {
         let fixture = makeFixture()
         await fixture.controller.start()
-        fixture.power.failNext(enabled: true, option: .displayOn)
 
-        await fixture.controller.toggle(.displayOn)
+        await fixture.controller.toggle(.systemAwake)
 
-        XCTAssertEqual(fixture.controller.state[.displayOn].intent, .off)
         XCTAssertEqual(
-            fixture.controller.state[.displayOn].issue,
+            fixture.controller.state[.systemAwake],
+            WakeOptionState(intent: .enabled, effect: .active)
+        )
+        XCTAssertEqual(
+            fixture.controller.state[.displayOn],
+            WakeOptionState()
+        )
+        XCTAssertEqual(
+            fixture.controller.state[.screenSaver],
+            WakeOptionState()
+        )
+        XCTAssertEqual(
+            fixture.preferences.value.enabledOptions,
+            [.systemAwake]
+        )
+        XCTAssertEqual(
+            fixture.power.calls,
+            [PowerCall(enabled: true, option: .systemAwake)]
+        )
+    }
+
+    @Test(arguments: WakeOption.ordinaryCases)
+    func testStandardOptionEnableFailureRollsBackAndCanBeRetried(
+        _ option: WakeOption
+    ) async {
+        let fixture = makeFixture()
+        await fixture.controller.start()
+        fixture.power.failNext(enabled: true, option: option)
+
+        await fixture.controller.toggle(option)
+
+        XCTAssertEqual(fixture.controller.state[option].intent, .off)
+        XCTAssertEqual(
+            fixture.controller.state[option].issue,
             .activationFailed
         )
         XCTAssertFalse(
-            fixture.preferences.value.enabledOptions.contains(.displayOn)
+            fixture.preferences.value.enabledOptions.contains(option)
         )
 
-        await fixture.controller.toggle(.displayOn)
+        await fixture.controller.toggle(option)
 
-        XCTAssertEqual(fixture.controller.state[.displayOn].intent, .enabled)
-        XCTAssertEqual(fixture.controller.state[.displayOn].effect, .active)
-        XCTAssertNil(fixture.controller.state[.displayOn].issue)
+        XCTAssertEqual(fixture.controller.state[option].intent, .enabled)
+        XCTAssertEqual(fixture.controller.state[option].effect, .active)
+        XCTAssertNil(fixture.controller.state[option].issue)
     }
 
     @Test
@@ -965,7 +1007,7 @@ struct CaffeineControllerTests {
         XCTAssertEqual(fixture.controller.state[.lidClosed].effect, .active)
         XCTAssertEqual(
             fixture.preferences.value.enabledOptions,
-            [.displayOn, .lidClosed]
+            [.systemAwake, .displayOn, .lidClosed]
         )
     }
 
@@ -976,6 +1018,10 @@ struct CaffeineControllerTests {
 
         await fixture.controller.toggleAll()
 
+        XCTAssertEqual(
+            fixture.controller.state[.systemAwake].effect,
+            .active
+        )
         XCTAssertEqual(fixture.controller.state[.displayOn].effect, .active)
         XCTAssertEqual(fixture.controller.state[.screenSaver].effect, .active)
         XCTAssertEqual(
@@ -1002,11 +1048,12 @@ struct CaffeineControllerTests {
             .deactivationFailed
         )
         XCTAssertEqual(
-            Array(fixture.power.calls.suffix(3)),
+            Array(fixture.power.calls.suffix(4)),
             [
                 PowerCall(enabled: false, option: .lidClosed),
                 PowerCall(enabled: false, option: .screenSaver),
                 PowerCall(enabled: false, option: .displayOn),
+                PowerCall(enabled: false, option: .systemAwake),
             ]
         )
     }
@@ -1040,11 +1087,12 @@ struct CaffeineControllerTests {
         XCTAssertEqual(fixture.preferences.value, durableValue)
         XCTAssertEqual(fixture.preferences.savedValues.count, saveCount)
         XCTAssertEqual(
-            Array(fixture.power.calls.suffix(3)),
+            Array(fixture.power.calls.suffix(4)),
             [
                 PowerCall(enabled: false, option: .lidClosed),
                 PowerCall(enabled: false, option: .screenSaver),
                 PowerCall(enabled: false, option: .displayOn),
+                PowerCall(enabled: false, option: .systemAwake),
             ]
         )
         XCTAssertEqual(

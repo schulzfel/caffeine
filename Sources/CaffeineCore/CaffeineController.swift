@@ -10,6 +10,8 @@ public final class CaffeineController {
         .milliseconds(750),
         .seconds(2),
     ]
+    private static let cleanupOrder = [WakeOption.lidClosed]
+        + Array(WakeOption.ordinaryCases.reversed())
 
     public private(set) var state: CaffeineState
 
@@ -82,7 +84,7 @@ public final class CaffeineController {
         state.launchAtLogin = ExternalToggleState(status: loginStatus)
         publish()
 
-        for option in [WakeOption.displayOn, .screenSaver] {
+        for option in WakeOption.ordinaryCases {
             guard state.lifecycle != .quitting else {
                 return
             }
@@ -152,7 +154,7 @@ public final class CaffeineController {
 
             // Clear the global lid setting first, and never short-circuit after
             // an individual failure.
-            for option in [WakeOption.lidClosed, .screenSaver, .displayOn] {
+            for option in Self.cleanupOrder {
                 guard state.lifecycle != .quitting else {
                     return
                 }
@@ -483,7 +485,7 @@ public final class CaffeineController {
         publish()
 
         // Attempt every cleanup even if an earlier operation fails.
-        for option in [WakeOption.lidClosed, .screenSaver, .displayOn] {
+        for option in Self.cleanupOrder {
             do {
                 try await powerController.setEnabled(false, for: option)
                 state[option].effect = .inactive
@@ -506,11 +508,10 @@ public final class CaffeineController {
         _ option: WakeOption,
         userInitiated: Bool
     ) async {
-        switch option {
-        case .displayOn, .screenSaver:
-            await enableStandardOption(option)
-        case .lidClosed:
+        if option == .lidClosed {
             await enableLidOption(userInitiated: userInitiated)
+        } else {
+            await enableStandardOption(option)
         }
     }
 
@@ -829,11 +830,10 @@ public final class CaffeineController {
 
         let shouldPresentExplanation = userInitiated
             && !storedPreferences.didExplainHelperApproval
-        if shouldPresentExplanation {
-            storedPreferences.didExplainHelperApproval = true
-        }
 
-        persistStableState()
+        persistStableState(
+            markHelperApprovalExplained: shouldPresentExplanation
+        )
         publish()
 
         if userInitiated {
@@ -924,16 +924,28 @@ public final class CaffeineController {
         state.bulkOperationInProgress = false
     }
 
-    private func persistStableState() {
-        storedPreferences.enabledOptions = Set(
+    private func persistStableState(
+        markHelperApprovalExplained: Bool = false
+    ) {
+        var updatedPreferences = storedPreferences
+        if markHelperApprovalExplained {
+            updatedPreferences.didExplainHelperApproval = true
+        }
+        updatedPreferences.enabledOptions = Set(
             WakeOption.allCases.filter {
                 state[$0].intent == .enabled
             }
         )
-        storedPreferences.waitingForLidApproval =
+        updatedPreferences.waitingForLidApproval =
             state[.lidClosed].intent == .waitingForApproval
-        storedPreferences.normalize()
-        preferencesStore.save(storedPreferences)
+        updatedPreferences.normalize()
+
+        guard updatedPreferences != storedPreferences else {
+            return
+        }
+
+        storedPreferences = updatedPreferences
+        preferencesStore.save(updatedPreferences)
     }
 
     private func publish() {

@@ -1,9 +1,10 @@
 # Caffeine
 
 Caffeine is a small native macOS menu bar app that keeps your Mac available
-when you need it. It can keep the display on, prevent the screen saver, and,
-with an optional administrator-installed helper, experimentally keep a Mac
-notebook awake while its lid is closed.
+when you need it. It can keep the Mac awake while allowing its display to
+sleep, keep the display on, prevent the screen saver, and, with an optional
+administrator-installed helper, experimentally keep a Mac notebook awake while
+its lid is closed.
 
 Caffeine supports macOS 14 and later and ships as a Universal 2 app with native
 Apple silicon and Intel code. It has no Dock icon, main window, analytics,
@@ -68,6 +69,9 @@ optional privileged helper both rely on that stable location.
 
 ## Menu options
 
+- **Keep Mac Awake (Display Can Sleep)** prevents idle system sleep while still
+  allowing the display to turn off normally. It does not override an explicit
+  sleep command, closing a notebook's lid, or macOS low-battery safeguards.
 - **Keep Display On** holds a macOS power assertion while selected.
 - **Prevent Screen Saver** declares user activity approximately every
   30 seconds. This can also wake the display or postpone display sleep because
@@ -76,7 +80,7 @@ optional privileged helper both rely on that stable location.
   private power-management SPI described below.
 - **Launch at Login** uses macOS Service Management for the main app.
 
-The three keep-awake controls are independently selectable. **Enable All**
+The four keep-awake controls are independently selectable. **Enable All**
 turns them all on; while any option is active, the command becomes
 **Disable All**. Selected state is restored when Caffeine launches again.
 Enable **Launch at Login** to restore those selections automatically after a
@@ -87,7 +91,7 @@ manually before leaving it unattended.
 
 ## Optional lid-closed helper
 
-The display and screen-saver options do not need administrator access. Install
+The three ordinary keep-awake options do not need administrator access. Install
 the root helper only if you want to try **Stay Awake When Lid Closed**.
 
 The matching installer is sealed inside each Caffeine app:

@@ -33,6 +33,8 @@ actor SystemPowerController: PowerControlling {
 
     private static let displayReason =
         "Caffeine is keeping the display awake"
+    private static let systemAwakeReason =
+        "Caffeine is keeping the Mac awake"
     private static let screenSaverReason =
         "Caffeine is preventing the screen saver"
     private static let helperTimeoutNanoseconds: UInt64 = 2_000_000_000
@@ -40,6 +42,7 @@ actor SystemPowerController: PowerControlling {
     private let logger: Logger
 
     private var displayAssertion: IOPMAssertionID?
+    private var systemAwakeAssertion: IOPMAssertionID?
     private var activityAssertion: IOPMAssertionID?
     private var screenSaverIsEnabled = false
     private var screenSaverTask: Task<Void, Never>?
@@ -72,6 +75,8 @@ actor SystemPowerController: PowerControlling {
         for option: WakeOption
     ) async throws {
         switch option {
+        case .systemAwake:
+            try setSystemAwake(enabled)
         case .displayOn:
             try setDisplayOn(enabled)
         case .screenSaver:
@@ -81,29 +86,49 @@ actor SystemPowerController: PowerControlling {
         }
     }
 
+    private func setSystemAwake(_ enabled: Bool) throws {
+        if enabled {
+            guard systemAwakeAssertion == nil else {
+                return
+            }
+
+            systemAwakeAssertion = try createNamedAssertion(
+                type: kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+                reason: Self.systemAwakeReason,
+                operationName: "system-awake"
+            )
+            logger.info(
+                "Enabled system sleep prevention while allowing display sleep"
+            )
+            return
+        }
+
+        guard let identifier = systemAwakeAssertion else {
+            return
+        }
+
+        try releaseAssertion(
+            identifier,
+            operationName: "system-awake"
+        )
+        systemAwakeAssertion = nil
+        logger.info(
+            "Disabled system sleep prevention that allows display sleep"
+        )
+    }
+
     private func setDisplayOn(_ enabled: Bool) throws {
         if enabled {
             guard displayAssertion == nil else {
                 return
             }
 
-            var identifier: IOPMAssertionID = 0
-            let result = IOPMAssertionCreateWithName(
-                kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                Self.displayReason as CFString,
-                &identifier
+            displayAssertion = try createNamedAssertion(
+                type:
+                    kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                reason: Self.displayReason,
+                operationName: "display"
             )
-            guard result == kIOReturnSuccess else {
-                logger.error(
-                    "Could not create the display assertion: IOKit result 0x\(String(result, radix: 16), privacy: .public)"
-                )
-                throw PowerControlError.ioKit(
-                    operation: "Creating the display assertion",
-                    result: result
-                )
-            }
-            displayAssertion = identifier
             logger.info("Enabled display sleep prevention")
             return
         }
@@ -112,18 +137,49 @@ actor SystemPowerController: PowerControlling {
             return
         }
 
-        let result = IOPMAssertionRelease(identifier)
-        guard result == kIOReturnSuccess || result == kIOReturnNotFound else {
+        try releaseAssertion(identifier, operationName: "display")
+        displayAssertion = nil
+        logger.info("Disabled display sleep prevention")
+    }
+
+    private func createNamedAssertion(
+        type: CFString,
+        reason: String,
+        operationName: String
+    ) throws -> IOPMAssertionID {
+        var identifier: IOPMAssertionID = 0
+        let result = IOPMAssertionCreateWithName(
+            type,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason as CFString,
+            &identifier
+        )
+        guard result == kIOReturnSuccess else {
             logger.error(
-                "Could not release the display assertion: IOKit result 0x\(String(result, radix: 16), privacy: .public)"
+                "Could not create the \(operationName, privacy: .public) assertion: IOKit result 0x\(String(result, radix: 16), privacy: .public)"
             )
             throw PowerControlError.ioKit(
-                operation: "Releasing the display assertion",
+                operation: "Creating the \(operationName) assertion",
                 result: result
             )
         }
-        displayAssertion = nil
-        logger.info("Disabled display sleep prevention")
+        return identifier
+    }
+
+    private func releaseAssertion(
+        _ identifier: IOPMAssertionID,
+        operationName: String
+    ) throws {
+        let result = IOPMAssertionRelease(identifier)
+        guard result == kIOReturnSuccess || result == kIOReturnNotFound else {
+            logger.error(
+                "Could not release the \(operationName, privacy: .public) assertion: IOKit result 0x\(String(result, radix: 16), privacy: .public)"
+            )
+            throw PowerControlError.ioKit(
+                operation: "Releasing the \(operationName) assertion",
+                result: result
+            )
+        }
     }
 
     private func setScreenSaverPrevention(
@@ -179,16 +235,7 @@ actor SystemPowerController: PowerControlling {
             return
         }
 
-        let result = IOPMAssertionRelease(identifier)
-        guard result == kIOReturnSuccess || result == kIOReturnNotFound else {
-            logger.error(
-                "Could not release the user activity assertion: IOKit result 0x\(String(result, radix: 16), privacy: .public)"
-            )
-            throw PowerControlError.ioKit(
-                operation: "Releasing the user activity assertion",
-                result: result
-            )
-        }
+        try releaseAssertion(identifier, operationName: "user activity")
         activityAssertion = nil
     }
 

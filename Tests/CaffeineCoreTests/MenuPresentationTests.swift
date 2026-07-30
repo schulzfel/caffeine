@@ -4,6 +4,22 @@ import Testing
 @Suite("Menu presentation")
 struct MenuPresentationTests {
     @Test
+    func testSystemAwakeIsAVisibleIndependentMenuOption() {
+        var state = CaffeineState(lifecycle: .running)
+        state[.systemAwake] = WakeOptionState(
+            intent: .enabled,
+            effect: .active
+        )
+
+        let menu = state.menuPresentation
+
+        XCTAssertEqual(
+            menu.optionItems[.systemAwake]?.title,
+            "Keep Mac Awake (Display Can Sleep)"
+        )
+    }
+
+    @Test
     func testEveryActiveSubsetDerivesIconChecksAndBulkTitle() {
         let options = WakeOption.allCases
 

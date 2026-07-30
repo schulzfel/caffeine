@@ -6,6 +6,28 @@ import Testing
 @MainActor
 struct StoredPreferencesTests {
     @Test
+    func testVersionOnePreferencesDecodeAfterAddingSystemAwakeOption() throws {
+        let legacyJSON = """
+        {
+          "version": 1,
+          "enabledOptions": ["displayOn", "screenSaver"],
+          "waitingForLidApproval": false,
+          "didExplainHelperApproval": true
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(
+            StoredPreferences.self,
+            from: Data(legacyJSON.utf8)
+        )
+
+        XCTAssertEqual(decoded.version, 1)
+        XCTAssertEqual(decoded.enabledOptions, [.displayOn, .screenSaver])
+        XCTAssertFalse(decoded.enabledOptions.contains(.systemAwake))
+        XCTAssertTrue(decoded.didExplainHelperApproval)
+    }
+
+    @Test
     func testRoundTripForEveryOptionSubset() throws {
         let options = WakeOption.allCases
         let encoder = JSONEncoder()
