@@ -34,6 +34,77 @@ expect_no_match "/tmp/Caffeine"
 expect_no_match "/Applications/Other.app/Contents/MacOS/Caffeine"
 expect_no_match "$CAFFEINE_APP_EXECUTABLE-copy"
 
+metadata_test_directory="$(
+    /usr/bin/mktemp \
+        -d \
+        "${TMPDIR:-/tmp}/caffeine-helper-package-metadata.XXXXXX"
+)"
+metadata_test_file="$metadata_test_directory/published-helper"
+/usr/bin/touch "$metadata_test_file"
+
+cleanup_metadata_test() {
+    /bin/rm -f -- "$metadata_test_file"
+    /bin/rmdir "$metadata_test_directory"
+}
+trap cleanup_metadata_test EXIT
+
+# macOS 26 attaches com.apple.provenance to newly published files and does not
+# remove it for `xattr -c`. It is platform metadata, not an unpreserved custom
+# attribute, so both an attribute-free file and a provenance-only file must be
+# accepted.
+[[ -z "$(/usr/bin/xattr /bin/ls)" ]] ||
+    caffeine_package_fail \
+        "the attribute-free metadata fixture unexpectedly has extended attributes"
+caffeine_package_require_supported_extended_attributes \
+    "/bin/ls" \
+    "attribute-free fixture"
+
+/usr/bin/xattr -c "$metadata_test_file"
+metadata_attributes="$(
+    /usr/bin/xattr "$metadata_test_file"
+)"
+if [[ -z "$metadata_attributes" ]]; then
+    /usr/bin/xattr \
+        -w \
+        "com.apple.provenance" \
+        "caffeine-test" \
+        "$metadata_test_file"
+    metadata_attributes="$(
+        /usr/bin/xattr "$metadata_test_file"
+    )"
+fi
+[[ "$metadata_attributes" == "com.apple.provenance" ]] ||
+    caffeine_package_fail \
+        "the provenance-only fixture has unexpected attributes: $metadata_attributes"
+caffeine_package_require_supported_extended_attributes \
+    "$metadata_test_file" \
+    "provenance-only fixture"
+
+/usr/bin/xattr \
+    -w \
+    "tech.46h.caffeine.synthetic" \
+    "installer-added" \
+    "$metadata_test_file"
+set +e
+unsupported_attribute_output="$(
+    (
+        caffeine_package_require_supported_extended_attributes \
+            "$metadata_test_file" \
+            "synthetic published helper"
+    ) 2>&1
+)"
+unsupported_attribute_status="$?"
+set -e
+[[ "$unsupported_attribute_status" != "0" ]] ||
+    caffeine_package_fail \
+        "published-file metadata validation accepted an unsupported attribute"
+[[ "$unsupported_attribute_output" \
+    == *"synthetic published helper"* &&
+   "$unsupported_attribute_output" \
+    == *"tech.46h.caffeine.synthetic"* ]] ||
+    caffeine_package_fail \
+        "unsupported-attribute failure did not identify its file and attribute"
+
 running_guard_started="$SECONDS"
 set +e
 running_guard_output="$(

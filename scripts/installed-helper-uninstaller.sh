@@ -61,13 +61,29 @@ require_secure_system_directory() {
     return 0
 }
 
+require_supported_extended_attributes() {
+    local path="$1"
+    local label="$2"
+    local attributes
+
+    attributes="$(/usr/bin/xattr "$path")" ||
+        fail "could not inspect extended attributes on $label"
+    # macOS 26 retains this OS-managed marker even when xattr -c succeeds.
+    case "$attributes" in
+        "" | "com.apple.provenance")
+            ;;
+        *)
+            fail "$label has unsupported extended attributes: $attributes"
+            ;;
+    esac
+}
+
 require_installed_file() {
     local path="$1"
     local expected_mode="$2"
     local label="$3"
     local details
     local flags
-    local attributes
 
     [[ -f "$path" && ! -L "$path" ]] ||
         fail "$label is missing or is not a regular file: $path"
@@ -91,9 +107,7 @@ require_installed_file() {
     flags="$(/usr/bin/stat -f '%Sf' "$path")"
     [[ "$flags" == "-" ]] ||
         fail "$label has unexpected file flags: $flags"
-    attributes="$(/usr/bin/xattr "$path")"
-    [[ -z "$attributes" ]] ||
-        fail "$label has unexpected extended attributes"
+    require_supported_extended_attributes "$path" "$label"
 }
 
 require_regular_target_or_absent() {

@@ -88,13 +88,31 @@ caffeine_package_require_regular_target_or_absent() {
         caffeine_package_fail "refusing non-regular target: $target"
 }
 
+caffeine_package_require_supported_extended_attributes() {
+    local target="$1"
+    local label="$2"
+    local attributes
+
+    attributes="$(/usr/bin/xattr "$target")" ||
+        caffeine_package_fail \
+            "could not inspect extended attributes on $label"
+    # macOS 26 retains this OS-managed marker even when xattr -c succeeds.
+    case "$attributes" in
+        "" | "com.apple.provenance")
+            ;;
+        *)
+            caffeine_package_fail \
+                "$label has unsupported extended attributes: $attributes"
+            ;;
+    esac
+}
+
 caffeine_package_require_existing_metadata_or_absent() {
     local target="$1"
     local expected_mode="$2"
     local label="$3"
     local details
     local flags
-    local attributes
 
     caffeine_package_require_regular_target_or_absent "$target"
     if ! caffeine_package_path_exists "$target"; then
@@ -122,10 +140,9 @@ caffeine_package_require_existing_metadata_or_absent() {
     [[ "$flags" == "-" ]] ||
         caffeine_package_fail \
             "$label has unexpected file flags: $flags"
-    attributes="$(/usr/bin/xattr "$target")"
-    [[ -z "$attributes" ]] ||
-        caffeine_package_fail \
-            "$label has extended attributes; refusing lossy rollback"
+    caffeine_package_require_supported_extended_attributes \
+        "$target" \
+        "$label"
 }
 
 caffeine_package_require_packaged_file() {
