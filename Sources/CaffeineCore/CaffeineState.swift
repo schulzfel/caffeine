@@ -38,6 +38,8 @@ public enum EffectStatus: Equatable, Sendable {
 public enum OptionIssue: Equatable, Sendable {
     case activationFailed
     case deactivationFailed
+    /// Closed-lid mode was withdrawn because the display could not be slept.
+    case displaySleepFailed
     /// An active lid lease ended unexpectedly and may become pending approval.
     case helperConnectionLost
     case helperUnavailable

@@ -117,6 +117,8 @@ private extension WakeOptionState {
             return "Couldn’t enable — click to retry"
         case .deactivationFailed:
             return "Couldn’t disable — click to retry"
+        case .displaySleepFailed:
+            return "Couldn’t sleep display — click to retry"
         case .helperConnectionLost, .helperUnavailable:
             return "Helper unavailable — click to retry"
         case .helperRequiresInstallation:

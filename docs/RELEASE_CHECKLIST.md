@@ -31,6 +31,11 @@ On the build Mac:
 - [ ] Set shell variables `RELEASE_VERSION` and `RELEASE_BUILD` to the release
       record values above.
 - [ ] Run `make test`; all Swift tests pass.
+- [ ] Confirm the controller-level lid-mode fault and race tests in
+      `Tests/CaffeineTests` pass, including observation failures, display-sleep
+      command failures/timeouts, post-command panel verification, both
+      cancellation/topology orderings, exactly-once late-sleep reconciliation,
+      stale helper completions, and unconfirmed helper-clear recovery.
 - [ ] Run `make check`; the complete ad-hoc app build and validation pass.
 - [ ] Run:
 
@@ -89,6 +94,10 @@ directory.
 - [ ] Confirm neither executable has a dangerous hardened-runtime exception
       such as disabled library validation or allowed DYLD environment
       variables.
+- [ ] Inspect both executables with `otool -L`; neither directly links a path
+      under `/System/Library/PrivateFrameworks`.
+- [ ] Inspect both executables with `nm -u`; neither directly imports an `SLS`
+      display-control symbol. Confirm app validation enforces both checks.
 - [ ] Confirm both executables contain exactly `arm64` and `x86_64`:
 
   ```sh
@@ -310,17 +319,120 @@ First verify the in-app path:
 ## Experimental lid and sleep behavior
 
 Perform this section on a hard, ventilated surface. Never place the Mac in a
-bag or enclosed space. Keep a remote SSH session, continuous ping, or
-long-running observable task available to distinguish awake from asleep.
+bag or enclosed space. Use a second computer with SSH and a long-running
+counter or timestamp task that creates no power assertion to distinguish awake
+from asleep.
+
+Do not use Screen Sharing, Remote Desktop, VNC, Computer Use, a screen recorder,
+screen capture, display streaming, or another GUI-control tool during the
+display-power observations. Those tools can wake a display or otherwise change
+the state being tested. Establish SSH before closing the lid and observe the
+task only from the second computer.
 
 - [ ] Confirm the UI and README describe lid mode as experimental private SPI,
       not a supported Apple API.
-- [ ] Begin with no Caffeine ownership marker and a known `disablesleep` state.
-- [ ] On AC power, enable **Stay Awake When Lid Closed**, close the lid, and
-      verify the Mac remains reachable and the observable task continues.
+- [ ] Repeat this complete section on a native Intel Mac and a native Apple
+      silicon Mac; record the model, macOS build, and architecture for each.
+- [ ] Run every internal-display, external-display, and option-combination pass
+      once on AC power and once on battery.
+- [ ] Begin with no Caffeine ownership marker, a known `disablesleep` state,
+      and all four Caffeine options off.
+- [ ] Before each pass, save the output of `pmset -g assertions` with the lid
+      open and Caffeine inactive. Save it again after enabling the test options,
+      through SSH while the lid is closed, after reopening, and after disabling
+      Caffeine. Account for every Caffeine-owned assertion and any unrelated
+      assertion that could invalidate the pass.
+
+### Built-in display only
+
+Disconnect every external display, dock display, DisplayLink device, Sidecar
+display, and AirPlay display before this pass.
+
+- [ ] On AC power, select only **Stay Awake When Lid Closed**, start the
+      assertion-free SSH-observed task, and close the lid slowly enough to
+      physically confirm that the built-in panel and backlight turn off
+      promptly after the short display-sleep debounce. Then close it fully.
+- [ ] Leave the lid closed for at least five minutes. Confirm from the second
+      computer that SSH stays connected, the task advances continuously, and
+      the built-in panel does not relight.
+- [ ] Do not infer built-in-panel sleep from reachability or from the state of
+      another display; physically verify the panel/backlight in this pass.
+- [ ] Reopen the lid and confirm the built-in display returns normally without
+      toggling the persisted lid-mode selection.
+- [ ] Repeat with **Keep Display On** also selected. Its checkmark must remain
+      selected, but its Caffeine-owned display-sleep assertion must be absent
+      while the lid is closed and headless. The panel turns off on close, and
+      the assertion and selected effect return on reopen.
+- [ ] Repeat with **Prevent Screen Saver** also selected. Caffeine must pause
+      its user-activity declarations while closed and headless, the panel must
+      stay off, and the selected effect must resume on reopen.
+- [ ] Select **Enable All** and repeat. Both display-affecting runtime effects
+      are suspended only while closed and headless; the internal panel stays
+      off, the SSH task stays alive, and all selected effects resume on reopen.
+- [ ] Repeat the complete built-in-only pass on battery while monitoring charge
+      and temperature. The panel must still turn off promptly and remain off.
+
+### External clamshell display
+
+Use a directly connected or dock-connected external display that macOS reports
+online. Verify the display is genuinely online before each pass.
+
+- [ ] With an external display online, enable lid mode and close the lid.
+      Physically confirm the built-in panel is off while the external display
+      remains lit and usable with its normal keyboard and pointing device.
+- [ ] Repeat with **Keep Display On**, **Prevent Screen Saver**, and
+      **Enable All**. Caffeine must not issue a global display-sleep request or
+      suppress the selected display effects while the external display is
+      online.
+- [ ] While the lid remains closed, detach the external display. Confirm the
+      external output ends, Caffeine enters headless behavior, suspends the
+      display effects, and issues one display-sleep request after its short
+      debounce while the SSH-observed task continues.
+- [ ] While the lid remains closed and headless, attach the external display.
+      Confirm it becomes usable, stale display-sleep work does not turn it off,
+      and the selected display effects resume. If the display-sleep child had
+      already launched, confirm Caffeine waits for its termination and emits at
+      most one user-activity reconciliation after the completed external
+      topology.
+- [ ] Repeat attach and detach in quick succession while closed. The final
+      topology determines the behavior, with no delayed display-sleep request
+      blanking a newly attached external display.
+- [ ] Inspect assertions and logs during reconfiguration. At configuration
+      begin, the previous topology becomes invalid, pending global sleep is
+      cancelled, and selected display effects are conservatively restored until
+      the completed topology is known. A completed headless topology starts one
+      fresh sleep request only.
+- [ ] Confirm the display-sleep request itself does not create a repeated
+      configuration/sleep loop. One stable headless interval produces one
+      successful request and no runaway `/usr/bin/pmset` processes.
+- [ ] Repeat the complete external-display pass on battery, if the test Mac
+      supports that clamshell topology, and on AC power. Record any platform
+      restriction instead of changing the expected behavior.
+
+### Disable and recovery
+
+- [ ] With test doubles or a dedicated fault-injection build, separately force
+      initial observation timeout, observation registration failure, topology
+      enumeration failure, display-reconfiguration completion timeout, Caffeine
+      display-effect suspension/restoration failure, and both a nonzero result
+      and completion timeout from `/usr/bin/pmset displaysleepnow`. Also force a
+      zero command exit whose built-in display remains reported awake through
+      the verification window. Do not modify or replace the system tool.
+- [ ] Confirm an initial observation failure never leaves a lid-awake helper
+      lease active. Confirm every failure after activation turns off the lid
+      selection, cancels current generation work, requests that the helper clear
+      its lease, and shows an actionable retry hint.
+- [ ] Confirm a successful helper clear stops observation and restores each
+      still-selected ordinary display effect. Then induce an unconfirmed helper
+      clear and confirm observation and recovery remain active: the conservative
+      display-safety hold suppresses display-affecting effects for a closed or
+      unknown topology, permits them after an observed open lid or online
+      external display, and is removed only after helper clear is confirmed.
+- [ ] Deliver a late failure from a stale display-sleep generation after reopen
+      or external-display attachment; it must not withdraw the newer healthy
+      state or change menu selections.
 - [ ] Reopen the lid, disable the option, close the lid again, and verify normal
       sleep returns.
-- [ ] Repeat on battery while monitoring charge and temperature.
 - [ ] After disabling, run `pmset sleepnow` and verify the Mac can sleep.
 - [ ] Confirm cleanup restores the exact pre-Caffeine value when it began as
       false.
@@ -333,7 +445,8 @@ long-running observable task available to distinguish awake from asleep.
       another tool can change it, but cleanup restores Caffeine's recorded
       prior value. Do not use competing tools in normal operation.
 - [ ] Observe temperature, fan behavior where applicable, CPU use, and battery
-      drain; no unexplained runaway behavior occurs.
+      drain. The awake workload may consume power, but no internal panel remains
+      lit behind the closed lid and no unexplained runaway behavior occurs.
 - [ ] Repeat the complete experiment after each supported macOS update. A
       private-SPI failure must be reported cleanly without breaking the ordinary
       options.

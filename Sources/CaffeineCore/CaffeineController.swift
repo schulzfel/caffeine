@@ -450,11 +450,16 @@ public final class CaffeineController {
         if option == .lidClosed {
             // A connection that disappears while an explicit removal is in
             // progress must not recreate the request if approval is later
-            // observed. Only an unsolicited active/applying loss retains that
+            // observed. Display-idle failures have their own actionable hint;
+            // all other unsolicited active/applying losses retain helper-loss
             // provenance.
-            resolvedIssue = lostState.effect == .removing
-                ? .helperUnavailable
-                : .helperConnectionLost
+            if lostState.effect == .removing {
+                resolvedIssue = .helperUnavailable
+            } else if issue == .displaySleepFailed {
+                resolvedIssue = issue
+            } else {
+                resolvedIssue = .helperConnectionLost
+            }
         } else {
             resolvedIssue = issue
         }

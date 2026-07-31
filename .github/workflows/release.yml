@@ -42,15 +42,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES: |
-            Free, open-source Universal 2 community build for Intel and Apple silicon Macs.
+            Caffeine is a tiny menu bar app that keeps your Mac awake exactly the way you want—without adding another window or Dock icon.
 
-            The app and optional helper are identity-free ad-hoc signed with the hardened runtime. The DMG and the helper package sealed inside the app are unsigned, and nothing is signed with an Apple Developer ID or notarized by Apple. macOS therefore requires **Open Anyway** confirmation for the app and, if used, the optional package. Select **Stay Awake When Lid Closed** in Caffeine to open its exact embedded installer—no Terminal command is required.
+            ### What you can do
 
-            Closed-lid mode has no Accessibility or Automation permission. First use opens macOS Installer for administrator authorization; Caffeine opens Login Items only if the installed helper is later disabled.
+            - Keep your Mac awake while letting the display sleep
+            - Keep the display on
+            - Prevent the screen saver
+            - Keep a MacBook working with its lid closed
+            - Restore your choices after a restart and launch quietly at login
 
-            Download the DMG and its matching `.sha256` file below. The checksum detects corruption or replacement, but because it is distributed through this same GitHub Release, it does not independently authenticate the publisher or protect against a compromised release channel. If you have GitHub CLI, independently verify the workflow provenance with `gh attestation verify path/to/Caffeine.dmg --repo ${{ github.repository }} --signer-workflow ${{ github.repository }}/.github/workflows/release.yml`.
+            ### Install
 
-            Read the [installation and optional helper instructions](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#download-and-install), the [experimental lid-mode warning](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#lid-closed-mode-is-experimental), the [source code](${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}), the [MIT License](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/LICENSE), and [third-party notices](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/THIRD_PARTY_NOTICES.md).
+            Download the DMG below, drag Caffeine into **Applications**, and open it. This free community build is distributed outside the App Store, so macOS may ask you to confirm it with **Open Anyway** the first time. If you choose the optional lid-closed feature, Caffeine walks you through its one-time setup—no Terminal commands needed.
+
+            Works on Intel and Apple silicon Macs running macOS 14 or later. Free, open source, private, and completely offline.
+
+            [Installation help](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#download-and-install) · [Lid-closed mode guide](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#optional-lid-closed-helper) · [Source code](${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }})
         run: |
           gh release create "$GITHUB_REF_NAME" \
             "$DMG" \

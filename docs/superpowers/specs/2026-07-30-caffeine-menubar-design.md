@@ -67,7 +67,7 @@ ID identity and is not notarized by Apple.
 | Keep Mac Awake (Display Can Sleep) | `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep)` — prevents idle system sleep without preventing display sleep; it does not override explicit sleep, lid closure, or low-battery safeguards |
 | Keep Display On | `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)` |
 | Prevent Screen Saver | Periodic `IOPMAssertionDeclareUserActivity` (every ~30 s while enabled) — declares user activity to reset the screen-saver idle timer; macOS also powers on the display and postpones display sleep, so this control's observable display effect is not independent |
-| Stay Awake When Lid Closed | XPC call to the optional privileged root helper, which experimentally uses private IOKit SPI to set the system power setting `SleepDisabled` (equivalent of `pmset disablesleep 1`) |
+| Stay Awake When Lid Closed | XPC call to the optional privileged root helper, which experimentally uses private IOKit SPI to set the system power setting `SleepDisabled` (equivalent of `pmset disablesleep 1`). The app observes IOPM root-domain clamshell changes and online CoreGraphics displays. Whenever the effective state becomes lid closed with no online external display, it suspends its display-affecting effects, applies an approximately 300 ms debounce, then invokes exactly `/usr/bin/pmset displaysleepnow`, without a shell |
 | Launch at Login | `SMAppService.mainApp.register()` / `.unregister()` |
 
 Notes:
@@ -79,6 +79,35 @@ Notes:
 - `SleepDisabled` is one global Boolean. If another tool changes it while
   Caffeine owns it, cleanup cannot identify that newer writer and restores the
   recorded pre-Caffeine value. Competing tools must not control it concurrently.
+- While the lid is closed with no online external display, Caffeine temporarily
+  releases its own display-sleep assertion and pauses its screen-saver activity
+  declarations before starting the debounce and requesting display sleep. Their
+  selected state remains persisted.
+- If an external display is or becomes online, Caffeine cancels pending global
+  display-sleep work and does not suppress the selected display effects. Native
+  clamshell behavior keeps the built-in panel off while preserving the external
+  display. An attach or detach while closed re-evaluates this policy; an open lid
+  likewise restores the selected effects.
+- A CoreGraphics configuration-begin event immediately invalidates the previous
+  topology. Until a completed display list arrives, Caffeine conservatively
+  assumes an external display may be present, cancels pending global display-
+  sleep work, and restores selected display effects. A completed headless
+  topology starts a fresh generation and suspends the effects again before one
+  new display-sleep request. If no valid completed topology arrives within two
+  seconds, Caffeine withdraws lid mode through the normal fail-safe path.
+- A zero exit from `pmset` is not sufficient proof that the panel is dark.
+  Caffeine polls public CoreGraphics display state for a bounded two-second
+  window and accepts the request only when every online built-in display is
+  asleep. An unreadable or still-awake final state follows the fail-safe path.
+- Cancellation distinguishes work that never launched from a child process
+  that had already launched. After the latter has terminated, a generation-
+  and session-gated token waits for a completed topology. If that topology
+  confirms an external display, Caffeine declares exactly one user-activity
+  event and immediately releases its one-shot assertion to undo any late
+  global display sleep. Configuration-begin alone never wakes a display.
+- Display sleep uses the fixed Apple tool and public CoreGraphics display
+  enumeration. The app and helper must not link CoreDisplay, DisplayServices,
+  SkyLight, or directly import private `SLS` display-control symbols.
 - Each assertion carries a human-readable reason string (shows up in
   `pmset -g assertions`).
 
@@ -226,6 +255,23 @@ ID-signed and notarized `SMAppService` helper avoids this unsigned handoff.
 - XPC connection failure → option reverts to off, hint shown; retried on
   next toggle.
 - Assertion creation failure (rare) → option reverts, logged via `os_log`.
+- Initial lid/display observation failure or timeout → activation fails before
+  a lid-awake lease is retained.
+- Active lid-monitor or display-topology observation failure → cancel current
+  display-sleep work, withdraw lid mode, request that the helper clear its
+  lease, and show the display-sleep retry hint.
+- `/usr/bin/pmset displaysleepnow` nonzero exit, launch failure, two-second
+  completion timeout, or failure to confirm sleeping built-in displays within
+  the bounded verification window → record available diagnostics, surface
+  failure to the controller, withdraw lid mode, cancel current display-sleep
+  work, and request that the helper clear its lease rather than launching a
+  retry loop.
+- After either active failure, a confirmed helper clear ends observation and
+  restores the selected ordinary display effects. If that clear cannot yet be
+  confirmed, helper recovery and observation continue under a conservative
+  display-safety hold: display-affecting effects remain suspended for a closed
+  or unknown topology, may resume after an observed open lid or online external
+  display, and return to normal only after recovery confirms the clear.
 - On quit: release all assertions and ask the helper to restore the recorded
   pre-Caffeine `SleepDisabled` value.
 
@@ -233,22 +279,35 @@ ID-signed and notarized `SMAppService` helper avoids this unsigned handoff.
 
 - `swift test` unit tests: state model transitions, enable/disable-all logic,
   persistence round-trip, menu-state derivation — with a mock
-  `PowerController`.
+  `PowerController` — plus the pure lid/display policy's headless entry,
+  external attach/detach, idempotence, ordered actions, and stale-generation
+  rejection. `Tests/CaffeineTests` adds controller-level fault and race coverage
+  for observation and display-sleep failures, post-command panel verification,
+  both display-cancellation/topology orderings, exactly-once late-sleep
+  reconciliation, stale helper completions, and the conservative hold while a
+  helper clear remains unconfirmed.
 - Packaging validation: both executables contain exactly `arm64` and `x86_64`
   slices, each is ad-hoc signed with the hardened runtime, the bundle has no
   loose root-executed scripts or `SMAppService` daemon payload, the outer app
   signature seals an unsigned package with the matching helper and unprepared
-  canonical plist template, and the read-only DMG contains a 2× Retina
-  background with a 660-by-420-point logical size and a matching unclipped
-  Finder content area.
+  canonical plist template, neither executable directly links an Apple private
+  framework or imports private `SLS` display symbols, and the read-only DMG
+  contains a 2× Retina background with a 660-by-420-point logical size and a
+  matching unclipped Finder content area.
 - Manual smoke tests (real hardware only): idle system sleep is prevented while
   display sleep remains available, display stays on, screensaver is suppressed,
   the Gatekeeper **Open Anyway** flow works, launch-at-login survives reboot,
   the optional helper installs/updates/uninstalls safely, its exact two-CDHash
-  pin rejects an old/new app mismatch, lid-close keeps the Mac running, and
-  prior sleep state is restored after disable/quit/recovery.
+  pin rejects an old/new app mismatch, lid-close promptly turns off the built-in
+  panel after the debounce without stopping an SSH-observed task, external
+  clamshell displays remain available, attach/detach is handled while closed,
+  and prior sleep state is restored after disable/quit/recovery. Verify lid-only,
+  display-on, screen-saver, and enable-all combinations on AC and battery.
   Repeat the complete launch and helper paths natively on both Intel and Apple
-  silicon hardware, including reinstalling the helper after an app update.
+  silicon hardware, including reinstalling the helper after an app update. Do
+  not use screen sharing, screen capture, Computer Use, or remote-control tools
+  during display-power observations because they can change the state under
+  test.
 - Recheck experimental lid-closed behavior and normal sleep restoration after
   every macOS update; successful behavior on one OS or Mac model is not a
   compatibility guarantee.

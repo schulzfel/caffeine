@@ -77,7 +77,13 @@ optional privileged helper both rely on that stable location.
   30 seconds. This can also wake the display or postpone display sleep because
   that is how the macOS API behaves.
 - **Stay Awake When Lid Closed** uses the optional root helper and experimental
-  private power-management SPI described below.
+  private power-management SPI described below. When the lid closes with no
+  external display online, Caffeine temporarily pauses its own display-on and
+  screen-saver effects, waits for an approximately 300 ms debounce, then asks
+  macOS to sleep the displays. The selections remain checked. Opening the lid
+  or bringing an external display online cancels global display-sleep work and
+  resumes those effects; while an external display is online, Caffeine
+  preserves them so the display remains usable in normal clamshell operation.
 - **Launch at Login** uses macOS Service Management for the main app.
 
 The four keep-awake controls are independently selectable. **Enable All**
@@ -227,6 +233,37 @@ Apple may change or remove it in any macOS update, and behavior can vary by Mac
 model, power source, and operating-system version. A successful helper install
 does not make this feature Apple-supported.
 
+The app separately observes lid and display-topology changes. If the lid is
+closed and no external display is online, it first suspends Caffeine's
+display-on assertion and screen-saver activity declarations. After a short
+debounce, it invokes exactly `/usr/bin/pmset displaysleepnow`, without a shell.
+After the tool exits successfully, Caffeine uses public CoreGraphics state to
+confirm within a bounded interval that every online built-in display is asleep.
+This prevents a successful command exit from being mistaken for a dark panel.
+Caffeine cancels pending global display-sleep work when an external display
+comes online and preserves the selected display effects while that display
+remains online, so macOS can manage the built-in panel and external clamshell
+display normally. If a command had already launched before cancellation,
+Caffeine waits for that child process to terminate and, only after a completed
+topology confirms an external display, declares one user-activity event to undo
+any late global sleep. Attaching or removing an external display while the lid
+is closed re-evaluates this policy.
+
+While macOS is reconfiguring displays, Caffeine conservatively assumes an
+external display may be arriving. It cancels any pending global display-sleep
+request and restores the selected display effects until CoreGraphics reports
+the completed topology. If lid or display observation fails, or the display-
+sleep request fails, times out, or cannot be confirmed from display state,
+Caffeine turns off lid mode, cancels its current display-sleep work, asks the
+helper to restore normal lid sleep, and shows a retry hint. Once that helper
+clear is confirmed, observation stops and the selected ordinary effects
+resume. If the clear cannot yet be confirmed, Caffeine instead keeps observing
+and retains a conservative display-safety hold until recovery: display-
+affecting effects remain suspended while the lid or topology is closed or
+unknown, but can resume after an observed open lid or online external display.
+A display reconfiguration that does not produce a valid completed topology
+within two seconds follows the same fail-safe path.
+
 Keeping a closed Mac awake also changes its normal thermal and battery
 behavior:
 
@@ -236,6 +273,10 @@ behavior:
 - Turn the option off before travel, storage, macOS updates, or leaving the Mac
   unattended.
 - Expect increased battery drain and possible thermal throttling.
+
+Sleeping the built-in panel avoids one source of unnecessary battery use; it
+does not make lid-closed operation power-neutral. The CPU, memory, storage,
+networking, attached devices, and running tasks can continue consuming power.
 
 Caffeine records the prior global `SleepDisabled` value in a durable root-only
 marker before changing it. Toggle-off, quit, loss of the authenticated app

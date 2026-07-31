@@ -309,6 +309,27 @@ struct CaffeineControllerTests {
     }
 
     @Test
+    func testLostActiveLidEffectPreservesDisplaySleepFailure() async {
+        let fixture = makeFixture(helperStatus: .enabled)
+        await fixture.controller.start()
+        await fixture.controller.toggle(.lidClosed)
+
+        fixture.controller.effectWasLost(
+            .lidClosed,
+            issue: .displaySleepFailed
+        )
+
+        XCTAssertEqual(fixture.controller.state[.lidClosed].intent, .off)
+        XCTAssertEqual(
+            fixture.controller.state[.lidClosed].issue,
+            .displaySleepFailed
+        )
+        XCTAssertFalse(
+            fixture.preferences.value.enabledOptions.contains(.lidClosed)
+        )
+    }
+
+    @Test
     func testLostEffectIsIgnoredWhenInactiveOrQuitting() async {
         let fixture = makeFixture()
         await fixture.controller.start()

@@ -107,11 +107,22 @@ validate_binary() {
     )"
     [[ "$dependencies" != *"$REPOSITORY_ROOT"* ]] ||
         fail "$label contains a development-path dynamic dependency"
+    [[ "$dependencies" != *"/System/Library/PrivateFrameworks/"* ]] ||
+        fail "$label directly links a private Apple framework"
+
+    local undefined_symbols direct_sls_imports
+    undefined_symbols="$(/usr/bin/nm -u "$binary")"
+    direct_sls_imports="$(
+        /usr/bin/printf '%s\n' "$undefined_symbols" |
+            /usr/bin/awk '$NF ~ /^_SLS/ { print }'
+    )"
+    [[ -z "$direct_sls_imports" ]] ||
+        fail "$label directly imports private SLS display symbols"
 
     if [[ "$label" == "CaffeineHelper" ]]; then
         local private_power_imports
         private_power_imports="$(
-            /usr/bin/nm -u "$binary" |
+            /usr/bin/printf '%s\n' "$undefined_symbols" |
                 /usr/bin/awk '
                     $1 == "_IOPMCopySystemPowerSettings" ||
                     $1 == "_IOPMSetSystemPowerSetting" {

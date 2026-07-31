@@ -86,6 +86,10 @@ struct MenuPresentationTests {
         let cases: [(OptionIssue, String)] = [
             (.activationFailed, "Couldn’t enable — click to retry"),
             (.deactivationFailed, "Couldn’t disable — click to retry"),
+            (
+                .displaySleepFailed,
+                "Couldn’t sleep display — click to retry"
+            ),
             (.helperConnectionLost, "Helper unavailable — click to retry"),
             (.helperUnavailable, "Helper unavailable — click to retry"),
             (.helperRequiresInstallation, "Install helper to enable"),

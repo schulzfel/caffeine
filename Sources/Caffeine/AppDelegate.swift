@@ -54,8 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 menuBarController?.revealMenu()
             }
             await powerController.setEffectLostHandler {
-                [weak caffeineController] option in
-                caffeineController?.effectWasLost(option)
+                [weak caffeineController] option, issue in
+                caffeineController?.effectWasLost(
+                    option,
+                    issue: issue
+                )
             }
             await caffeineController.start()
             logger.info("Caffeine finished launching")

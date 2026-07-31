@@ -71,6 +71,13 @@ let package = Package(
         .testTarget(
             name: "CaffeineLaunchdSupportTests",
             dependencies: ["CaffeineLaunchdSupport"]
+        ),
+        .testTarget(
+            name: "CaffeineTests",
+            dependencies: [
+                "Caffeine",
+                "CaffeineCore"
+            ]
         )
     ],
     swiftLanguageModes: [.v5]
